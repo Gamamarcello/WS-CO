@@ -1,7 +1,7 @@
 SET session statement_timeout to 600000;
--- 
+--
 SET enable_seqscan = off;
--- 
+--
 SHOW statement_timeout;
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Indexing
@@ -13,12 +13,12 @@ DROP INDEX test_feature_asis_vias_geom_idx;
 CREATE INDEX jplanet_osm_polygon_way_idx ON jplanet_osm_polygon USING GIST (way);
 CREATE INDEX teste_pts_medellin_geom_idx ON teste_pts_medellin USING SPGIST (geom);
 CREATE INDEX test_feature_asis_vias_geom_idx ON test_feature_asis_vias USING GIST (geom);
--- 
-CREATE SCHEMA api;
--- 
+--
+CREATE SCHEMA EXTENSION IF NOT EXISTS api;
+--
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA api;
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-CREATE MATERIALIZED VIEW api.search AS -- 
+CREATE MATERIALIZED VIEW api.search AS --
 WITH administrative AS (
   SELECT *
   FROM jplanet_osm_polygon
@@ -230,7 +230,7 @@ SELECT ST_AsText(
   ) As wktenv;
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Address Look Up (it accepts either address or _id)
--- Potential conflict: address is not unique among the whole dataset 
+-- Potential conflict: address is not unique among the whole dataset
 -- It should be considered to return a  FeatureCollection instead a single Feature
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 SELECT json_agg(ST_AsGeoJSON(r, 'geom', 6)::json)
@@ -272,7 +272,7 @@ FROM (
   ) j;
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Full Text Search Generic V1.1
--- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++	
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 WITH q AS (
   SELECT *,
     similarity(lower('Calle 1BB #48A ESTE-522 El Cerro'), q) AS sim
@@ -607,12 +607,12 @@ FROM (
   ) j;
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 --  Testing pb's Functions
--- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++	
-SELECT api.get_addresses_in_bbox(-75.552, 6.291, -75.543, 6.297);
-SELECT api.viewbox_to_polygon(-75.552, 6.291, -75.543, 6.297);
--- 
-SELECT api.lookup('CL 1BB #48A ESTE-522 (0130)');
-SELECT api.lookup('443091');
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+SELECT api.get_addresses_in_bbox(-75.552, 6.291, -75.543, 6.297); -- need tabular
+SELECT api.viewbox_to_polygon(-75.552, 6.291, -75.543, 6.297);  -- need geojson
+--
+SELECT api.lookup('CL 1BB #48A ESTE-522 (0130)'); -- ok
+SELECT api.lookup('443091');  -- ok
 SELECT api.search('CL 107 42 Popular', 10);
 SELECT api.search_bounded(
     'CL 107C #42B-42 Popular',
@@ -627,6 +627,6 @@ SELECT api.search_nearby(
   );
 SELECT api.reverse(-75.486799, 6.194510);
 SELECT api.reverse(-75.486799, 6.194510, 200, 10);
--- 
+--
 EXPLAIN ANALYZE
-SELECT api.search('Calle 95 #69-61', 1);
+  SELECT api.search('Calle 95 #69-61', 1);
