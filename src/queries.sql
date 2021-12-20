@@ -1,7 +1,7 @@
 SET session statement_timeout to 600000;
---
+-- 
 SET enable_seqscan = off;
---
+-- 
 SHOW statement_timeout;
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Indexing
@@ -13,12 +13,12 @@ DROP INDEX test_feature_asis_vias_geom_idx;
 CREATE INDEX jplanet_osm_polygon_way_idx ON jplanet_osm_polygon USING GIST (way);
 CREATE INDEX teste_pts_medellin_geom_idx ON teste_pts_medellin USING SPGIST (geom);
 CREATE INDEX test_feature_asis_vias_geom_idx ON test_feature_asis_vias USING GIST (geom);
---
-CREATE SCHEMA EXTENSION IF NOT EXISTS api;
---
+-- 
+CREATE SCHEMA api;
+-- 
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA api;
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-CREATE MATERIALIZED VIEW api.search AS --
+CREATE MATERIALIZED VIEW api.search AS -- 
 WITH administrative AS (
   SELECT *
   FROM jplanet_osm_polygon
@@ -146,6 +146,7 @@ CREATE INDEX search_geom_sp_idx ON api.search USING SPGIST (geom);
 CREATE INDEX search_geom_idx ON api.search USING GIST (geom);
 CREATE INDEX search_properties_idx ON api.search USING GIN (properties jsonb_ops);
 CREATE INDEX search_properties_address_idx ON api.search USING GIN ((properties->'address'));
+CREATE INDEX search_properties_display_name_idx ON api.search USING GIN ((properties->'display_name'));
 CREATE INDEX search_properties_id_idx ON api.search USING GIN ((properties->'_id'));
 CREATE INDEX search_q_trgm_idx ON api.search USING GIN (q gin_trgm_ops);
 -- CREATE INDEX search_spq_trgm_idx ON api.search USING GIN (spq gin_trgm_ops);
@@ -230,7 +231,7 @@ SELECT ST_AsText(
   ) As wktenv;
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Address Look Up (it accepts either address or _id)
--- Potential conflict: address is not unique among the whole dataset
+-- Potential conflict: address is not unique among the whole dataset 
 -- It should be considered to return a  FeatureCollection instead a single Feature
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 SELECT json_agg(ST_AsGeoJSON(r, 'geom', 6)::json)
@@ -272,7 +273,7 @@ FROM (
   ) j;
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Full Text Search Generic V1.1
--- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++	
 WITH q AS (
   SELECT *,
     similarity(lower('Calle 1BB #48A ESTE-522 El Cerro'), q) AS sim
@@ -404,6 +405,111 @@ FROM (
             SELECT *
             FROM q
             WHERE q.diff <.95
+          ) s
+      ) r
+  ) j;
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Full Text Search Bounded V3.1
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+WITH q AS (
+  SELECT *,
+    lower('CL 107C #42B-42') <->q.spq AS diff
+  FROM (
+      SELECT *
+      FROM api.search
+      WHERE ST_Contains(
+          ST_SetSRID(
+            api.viewbox_to_polygon(-75.552, 6.291, -75.543, 6.297),
+            4326
+          ),
+          geom
+        )
+    ) q
+  ORDER BY diff
+  LIMIT 10
+)
+SELECT json_build_object(
+    'type',
+    'FeatureCollection',
+    'features',
+    j.features
+  ) AS response
+FROM (
+    SELECT count(r) AS features_count,
+      json_agg(ST_AsGeoJSON(r, 'geom', 6)::json) AS features
+    FROM (
+        SELECT s.geom,
+          1 - s.diff AS similarity,
+          s.properties->>'_id' AS _id,
+          s.properties->>'address' AS address,
+          s.properties->>'display_name' AS display_name,
+          s.properties->>'barrio' AS barrio,
+          s.properties->>'comuna' AS comuna,
+          s.properties->>'municipality' AS municipality,
+          s.properties->>'divipola' AS divipola,
+          s.properties->>'country' AS country
+        FROM (
+            SELECT *
+            FROM q
+            WHERE q.diff < (
+                SELECT MIN(diff) + MIN(diff) / 10
+                FROM q
+              )
+          ) s
+      ) r
+  ) j;
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Full Text Search Bounded V4.2
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+WITH q AS (
+  SELECT *,
+    (
+      (lower('Calle 107C #42B Popular') <->spq) + (
+        lower('Calle 107C #42B Popular') <->(properties->>'address')::text
+      ) + (
+        lower('Calle 107C #42B Popular') <->(properties->>'display_name')::text
+      )
+    ) / 3 AS diff
+  FROM (
+      SELECT *
+      FROM api.search
+      WHERE ST_Contains(
+          ST_SetSRID(
+            api.viewbox_to_polygon(-75.552, 6.291, -75.543, 6.297),
+            4326
+          ),
+          geom
+        )
+    ) q
+  ORDER BY diff
+  LIMIT 10
+)
+SELECT json_build_object(
+    'type',
+    'FeatureCollection',
+    'features',
+    j.features
+  ) AS response
+FROM (
+    SELECT json_agg(ST_AsGeoJSON(r, 'geom', 6)::json) AS features
+    FROM (
+        SELECT s.geom,
+          1 - s.diff AS similarity,
+          s.properties->>'_id' AS _id,
+          s.properties->>'address' AS address,
+          s.properties->>'display_name' AS display_name,
+          s.properties->>'barrio' AS barrio,
+          s.properties->>'comuna' AS comuna,
+          s.properties->>'municipality' AS municipality,
+          s.properties->>'divipola' AS divipola,
+          s.properties->>'country' AS country
+        FROM (
+            SELECT *
+            FROM q
+            WHERE q.diff < (
+                SELECT MIN(diff) + MIN(diff) / 5
+                FROM q
+              )
           ) s
       ) r
   ) j;
@@ -608,11 +714,16 @@ FROM (
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 --  Testing pb's Functions
 -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-SELECT api.get_addresses_in_bbox(-75.552, 6.291, -75.543, 6.297); -- need tabular
-SELECT api.viewbox_to_polygon(-75.552, 6.291, -75.543, 6.297);  -- need geojson
---
-SELECT api.lookup('CL 1BB #48A ESTE-522 (0130)'); -- ok
-SELECT api.lookup('443091');  -- ok
+SELECT to_jsonb(ST_centroid(ST_AsText(ST_Extent(geom)))) AS centroid
+FROM api.search;
+-- 
+SELECT api.get_centroid();
+-- 
+SELECT api.get_addresses_in_bbox(-75.552, 6.291, -75.543, 6.297);
+SELECT api.viewbox_to_polygon(-75.552, 6.291, -75.543, 6.297);
+-- 
+SELECT api.lookup('CL 1BB #48A ESTE-522 (0130)');
+SELECT api.lookup('443091');
 SELECT api.search('CL 107 42 Popular', 10);
 SELECT api.search_bounded(
     'CL 107C #42B-42 Popular',
@@ -627,6 +738,12 @@ SELECT api.search_nearby(
   );
 SELECT api.reverse(-75.486799, 6.194510);
 SELECT api.reverse(-75.486799, 6.194510, 200, 10);
---
+-- 
 EXPLAIN ANALYZE
-  SELECT api.search('Calle 95 #69-61', 1);
+SELECT api.search('Calle 95 #69-61', 1);
+SELECT api.test_2(r)
+FROM (
+    SELECT *
+    FROM api.search
+    LIMIT 3
+  ) r;
